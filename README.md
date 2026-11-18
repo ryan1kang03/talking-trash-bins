@@ -19,11 +19,11 @@ The laptop shows two hand-inked bin characters on paper. They act out everything
 | Pose | When | What it looks like |
 |---|---|---|
 | napping | before you click "wake them up" | eyes closed, z z z |
-| idle | waiting | breathing, blinking, small smile |
-| ahhh | pedal down | lid flips open, mouth wide open, arms up, pedal squashes |
-| gulp | pedal up | a trash doodle drops in, lid shuts, happy squint, belly pat, squash-and-stretch |
-| full | overflow held | items poking out, lid ajar, stink lines, sweat drop, holding the lid down |
-| warn | wrong item (camera) | stern brows, shakes, points at the other bin |
+| idle | waiting | breathing, small smile, googly eyes that rattle now and then |
+| ahhh | pedal down | lid flips open, mouth wide open, arms up, pedal squashes, eyes roll up |
+| gulp | pedal up | a trash doodle drops in, lid shuts, belly pat, squash-and-stretch, eyes bounce |
+| full | overflow held | items poking out, lid ajar, stink lines, sweat drop, holding the lid down, eyes rattle nonstop |
+| warn | wrong item (camera) | stern brows, shakes, points at the other bin and glares at it |
 
 Tally marks under each bin count the items it has swallowed.
 

@@ -53,7 +53,6 @@ button, select, input { font: inherit; color: inherit; }
 .ink.thin { stroke-width: 3.5; }
 .ink.paper, .paper { fill: var(--paper-2); }
 .inkfill, .ink.inkfill { fill: var(--ink); }
-.shine { fill: var(--paper-2); }
 .tongue { fill: #ff8fa3; }
 .blush ellipse { fill: var(--pink); }
 .sweat { fill: #bfe3ff; stroke-width: 3.5; }
@@ -63,7 +62,7 @@ button, select, input { font: inherit; color: inherit; }
 
 /* ---------- the bins ---------- */
 
-.bin__idle, .bin__squash, .bin__shake, .lid, .pedal, .eyes-open, .overflow, .stink path, .zzz text {
+.bin__idle, .bin__squash, .bin__shake, .lid, .pedal, .overflow, .stink path, .zzz text {
   transform-box: fill-box;
 }
 
@@ -88,9 +87,9 @@ button, select, input { font: inherit; color: inherit; }
 .bin__shake { transform-origin: 50% 100%; }
 .bin__shake.shaking { animation: shake .5s ease-in-out; }
 
-/* blink */
-.eyes-open { transform-origin: center; transition: transform .06s; }
-.bin.blink .eyes-open { transform: scaleY(.12); }
+/* googly eyes (pupils are moved by the physics in stage.js) */
+.sclera { fill: var(--paper-2); stroke: var(--ink); stroke-width: 4.5; }
+.pupil { fill: var(--ink); }
 
 /* lid: opens fast, closes after a beat (so the item can drop in first) */
 .lid {

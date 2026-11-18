@@ -6,7 +6,7 @@
    picks the matching pose:
 
      sleep  – before Start (eyes closed, z z z)
-     idle   – breathing, blinking, small smile
+     idle   – breathing, small smile, googly eyes that rattle now and then
      ahhh   – lid open, mouth wide open, arms up        (pedal pressed)
      gulp   – an item drops in, lid shuts, cheeks puff  (pedal released)
      full   – stuffed: items poke out, lid ajar, stink lines, holding the lid
@@ -36,6 +36,12 @@ const Stage = (() => {
   const RIM = 'M -148 -322 Q 0 -334 149 -323 L 147 -297 Q 0 -307 -146 -296 Z';
   const LID = 'M -152 0 C -150 -30 -110 -50 -2 -55 C 110 -53 150 -30 153 0 Q 0 9 -152 0 Z';
   const PEDAL = 'M -46 -4 Q 0 -8 46 -6 L 54 16 Q 0 22 -54 18 Z';
+
+  // Two slightly mismatched googly eyes. room = how far the loose pupil can roll from the centre.
+  const GOOGLY = [
+    { cx: -44, cy: -228, r: 28, pupil: 12, room: 13 },
+    { cx: 46, cy: -225, r: 23, pupil: 10, room: 10 },
+  ];
 
   const hand = (x, y) => `<circle class="ink paper" cx="${x}" cy="${y}" r="9"/>`;
 
@@ -77,25 +83,24 @@ const Stage = (() => {
         <g class="blush v m-idle m-ahhh m-gulp m-sleep">
           <ellipse cx="-66" cy="-190" rx="14" ry="7"/><ellipse cx="66" cy="-190" rx="14" ry="7"/>
         </g>
-        <g class="eyes-open v m-idle m-ahhh m-warn">
-          <ellipse class="inkfill" cx="-50" cy="-226" rx="11" ry="14"/><ellipse class="inkfill" cx="50" cy="-226" rx="11" ry="14"/>
-          <circle class="shine" cx="-46" cy="-232" r="3.5"/><circle class="shine" cx="54" cy="-232" r="3.5"/>
-        </g>
-        <g class="v m-gulp">
-          <path class="ink" d="M -64 -224 Q -50 -240 -36 -224"/><path class="ink" d="M 36 -224 Q 50 -240 64 -224"/>
+        <!-- googly eyes: the pupils are loose and bounce around (physics at the bottom of this file) -->
+        <g class="googly v m-idle m-ahhh m-gulp m-full m-warn">
+          <circle class="sclera" cx="${GOOGLY[0].cx}" cy="${GOOGLY[0].cy}" r="${GOOGLY[0].r}"/>
+          <circle class="sclera" cx="${GOOGLY[1].cx}" cy="${GOOGLY[1].cy}" r="${GOOGLY[1].r}"/>
+          <circle class="pupil" data-eye="0" cx="${GOOGLY[0].cx}" cy="${GOOGLY[0].cy + GOOGLY[0].room}" r="${GOOGLY[0].pupil}"/>
+          <circle class="pupil" data-eye="1" cx="${GOOGLY[1].cx}" cy="${GOOGLY[1].cy + GOOGLY[1].room}" r="${GOOGLY[1].pupil}"/>
         </g>
         <g class="v m-sleep">
-          <path class="ink" d="M -64 -228 Q -50 -216 -36 -228"/><path class="ink" d="M 36 -228 Q 50 -216 64 -228"/>
+          <path class="ink" d="M -68 -226 Q -44 -210 -20 -226"/><path class="ink" d="M 26 -224 Q 46 -210 66 -224"/>
         </g>
         <g class="v m-full">
-          <path class="ink" d="M -62 -238 L -40 -227 L -62 -216"/><path class="ink" d="M 62 -238 L 40 -227 L 62 -216"/>
-          <path class="ink sweat" d="M 104 -270 Q 92 -250 104 -240 Q 116 -250 104 -270 Z"/>
+          <path class="ink sweat" d="M 104 -276 Q 92 -256 104 -246 Q 116 -256 104 -276 Z"/>
         </g>
         <g class="v m-ahhh">
-          <path class="ink" d="M -68 -258 Q -50 -270 -32 -258"/><path class="ink" d="M 32 -258 Q 50 -270 68 -258"/>
+          <path class="ink" d="M -68 -270 Q -44 -284 -20 -270"/><path class="ink" d="M 26 -266 Q 46 -280 66 -266"/>
         </g>
         <g class="v m-warn">
-          <path class="ink" d="M -70 -262 L -34 -248"/><path class="ink" d="M 70 -262 L 34 -248"/>
+          <path class="ink" d="M -72 -282 L -22 -264"/><path class="ink" d="M 70 -278 L 26 -262"/>
         </g>
 
         <!-- mouths -->
@@ -168,14 +173,20 @@ const Stage = (() => {
         </g>
         <text class="lettering" x="${x - 20}" y="${FLOOR_Y + 66}" text-anchor="middle">${escape(b.label || id)}</text>
         <g class="tally" id="tally-${id}" transform="translate(${x + 85} ${FLOOR_Y + 26})"></g>`;
-      bins[id] = { x, side, open: false, full: false, pedal: false, asleep: true, warnUntil: 0, gulpUntil: 0, timer: null };
+      bins[id] = { x, side, dir: -side, mood: 'sleep', open: false, full: false, pedal: false, asleep: true, warnUntil: 0, gulpUntil: 0, timer: null };
     });
     svg.innerHTML = html;
-    ids.forEach(id => { bins[id].el = svg.querySelector(`#bin-${CSS.escape(id)}`); });
+    ids.forEach(id => {
+      bins[id].el = svg.querySelector(`#bin-${CSS.escape(id)}`);
+      bins[id].el.querySelectorAll('.pupil').forEach(el => {
+        const g = GOOGLY[+el.dataset.eye];
+        pupils.push({ el, bin: id, cx: g.cx, cy: g.cy, room: g.room, x: 0, y: g.room, vx: 0, vy: 0, px: 0, py: g.room, phase: Math.random() * 6 });
+      });
+    });
 
     buildBubbles(ids);
     buildDecor();
-    startBlinking();
+    startGoogly();
     startBoil();
   }
 
@@ -197,6 +208,7 @@ const Stage = (() => {
     const b = bins[id];
     if (!b) return;
     const m = moodOf(b);
+    b.mood = m;
     MOODS.forEach(x => b.el.classList.toggle('mood-' + x, x === m));
     b.el.classList.toggle('is-open', b.open);
     b.el.classList.toggle('is-full', b.full);
@@ -219,6 +231,7 @@ const Stage = (() => {
     if (!b) return;
     b.open = true;
     b.pedal = true;
+    kick(id, 0, -340);                                   // eyes fly up as the lid pops
     refresh(id);
   }
 
@@ -230,6 +243,8 @@ const Stage = (() => {
     b.gulpUntil = performance.now() + 1200;
     dropItem(id, category);
     replay(b.el.querySelector('.bin__squash'), 'gulping');
+    setTimeout(() => kick(id, 0, 420), 300);             // squash: eyes slam down…
+    setTimeout(() => kick(id, 0, -380), 470);            // …stretch: and bounce back up
     refresh(id);
   }
 
@@ -237,6 +252,7 @@ const Stage = (() => {
     const b = bins[id];
     if (!b) return;
     b.full = full;
+    if (full) kick(id, 0, -420);
     refresh(id);
   }
 
@@ -245,6 +261,7 @@ const Stage = (() => {
     if (!b) return;
     b.warnUntil = performance.now() + 2600;
     replay(b.el.querySelector('.bin__shake'), 'shaking');
+    [0, 100, 200, 300].forEach((t, i) => setTimeout(() => kick(id, (i % 2 ? 1 : -1) * 380, -80), t));
     refresh(id);
   }
 
@@ -262,17 +279,79 @@ const Stage = (() => {
         bins[id].asleep = false;
         replay(bins[id].el.querySelector('.bin__squash'), 'waking');
         refresh(id);
+        kick(id, 0, -480);
       }, i * 180);
     });
   }
 
-  function startBlinking() {
-    setInterval(() => {
-      for (const b of Object.values(bins)) {
-        if (Math.random() < 0.07 && !b.el.classList.contains('blink')) {
-          b.el.classList.add('blink');
-          setTimeout(() => b.el.classList.remove('blink'), 130);
+  /* ---------- googly-eye physics ----------
+     Each pupil is a little ball rolling inside its eye. Gravity pulls it down,
+     kick() throws it around, and it bounces off the eye's rim. Each pose leans
+     the pupils a different way: up for "ahhh", toward the other bin for "warn",
+     shaken back and forth for "full". */
+
+  const pupils = [];
+  const GRAVITY = 950;      // pulls pupils to the bottom of the eye
+  const BOUNCE = 0.55;      // how much speed survives hitting the rim
+  const AIR = 0.8;          // drag while flying
+  const RIM_FRICTION = 6;   // drag while rolling along the rim
+
+  // Throw both pupils of a bin, each a bit differently (that's what makes them googly).
+  function kick(id, vx, vy) {
+    for (const p of pupils) {
+      if (p.bin !== id) continue;
+      p.vx += vx * (0.6 + Math.random() * 0.8) + (Math.random() - 0.5) * 260;
+      p.vy += vy * (0.6 + Math.random() * 0.8) + (Math.random() - 0.5) * 120;
+    }
+  }
+
+  function startGoogly() {
+    let last = performance.now();
+    const frame = now => {
+      const dt = Math.min(0.033, (now - last) / 1000);
+      last = now;
+      const t = now / 1000;
+      for (const p of pupils) {
+        const b = bins[p.bin];
+        if (b.mood === 'sleep') continue;
+        let ax = 0;
+        let ay = GRAVITY;
+        if (b.mood === 'ahhh') ay = -560;                                   // looking up
+        else if (b.mood === 'warn') { ax = b.dir * 1300; ay = 250; }        // glaring at the other bin
+        else if (b.mood === 'full') ax = Math.sin(t * 12 + p.phase) * 2200; // rattled
+        for (let s = 0; s < 2; s++) {
+          const h = dt / 2;
+          p.vx = (p.vx + ax * h) * (1 - AIR * h);
+          p.vy = (p.vy + ay * h) * (1 - AIR * h);
+          p.x += p.vx * h;
+          p.y += p.vy * h;
+          const d = Math.hypot(p.x, p.y);
+          if (d > p.room) {
+            const nx = p.x / d;
+            const ny = p.y / d;
+            p.x = nx * p.room;
+            p.y = ny * p.room;
+            const vn = p.vx * nx + p.vy * ny;
+            if (vn > 0) { p.vx -= (1 + BOUNCE) * vn * nx; p.vy -= (1 + BOUNCE) * vn * ny; }
+            p.vx *= 1 - RIM_FRICTION * h;
+            p.vy *= 1 - RIM_FRICTION * h;
+          }
         }
+        if (Math.abs(p.x - p.px) > 0.05 || Math.abs(p.y - p.py) > 0.05) {
+          p.el.setAttribute('cx', (p.cx + p.x).toFixed(2));
+          p.el.setAttribute('cy', (p.cy + p.y).toFixed(2));
+          p.px = p.x;
+          p.py = p.y;
+        }
+      }
+      requestAnimationFrame(frame);
+    };
+    requestAnimationFrame(frame);
+
+    // Every so often a bin's eyes give a little rattle on their own.
+    setInterval(() => {
+      for (const [id, b] of Object.entries(bins)) {
+        if (b.mood !== 'sleep' && Math.random() < 0.05) kick(id, (Math.random() - 0.5) * 300, -160);
       }
     }, 400);
   }
