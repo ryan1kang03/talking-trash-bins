@@ -10,7 +10,7 @@ Two bins, one for recycling and one for waste, that talk:
 | Camera sees a recyclable item at the waste bin | camera | *uh-oh* + "Please recycle!" |
 | Camera sees a non-recyclable item at the recycling bin | camera | *uh-oh* + "Please throw that in the waste bin!" |
 
-If the camera sees the wrong kind of item when the lid opens, the bin says the warning instead of "Ahhh". The "Gulp!" still plays when the lid closes.
+When a pedal goes down, the camera takes a photo and an AI vision model judges whether the item belongs in that bin. If it doesn't, the warning cuts off the "Ahhh". The "Gulp!" still plays when the lid closes.
 
 ## What's on screen
 
@@ -41,7 +41,7 @@ If the laptop feels laggy, set `LINE_BOIL: false` in `config.js`. That turns off
 2. Click **wake them up**, or anywhere on the screen. Browsers only allow sound after a click.
 3. Keep the browser window in front. Key presses, including the Makey Makey's, only reach the page while its window is focused. A red banner appears if focus is lost.
 
-**The camera is OFF for now** (`VISION.ENABLED: false` in `config.js`). In this mode the page is audio + Makey Makey only, needs no internet, and never asks for the camera. When you're ready for the camera, set it to `true` and see the camera section below. The camera model is downloaded the first time, so that part needs Wi-Fi.
+**The camera is on.** Allow the camera when Chrome asks. The first time you wake the bins, the page downloads its vision model (about 150 MB), so use Wi-Fi. On the website the model is cached after that. Sound and the pedals work even if the camera or the model doesn't. To turn the camera off, set `VISION.ENABLED: false` in `config.js`.
 
 If the camera doesn't work when you open the file directly, run a tiny local server from this folder instead and open http://localhost:8000:
 
@@ -76,22 +76,32 @@ You can test everything without the Makey Makey. Use the arrow keys, and **hold*
 4. Hold each overflow contact for about a second. You should hear "Take out the trash!", and the bin should show **FULL** until the contact is released.
 5. Use the **Sound check** buttons in Backstage to hear every line without touching the hardware, and to set the volume. Close Backstage before participants arrive.
 
-## Camera: recyclable or not?
+## Camera: is it the right bin?
 
-The camera is turned off for now. To turn it on, set `ENABLED: true` under `VISION` in `config.js`.
+1. A pedal goes down. The bin says "Ahhh" and the camera takes a photo.
+2. A vision-language model (VLM) looks at the photo and answers: recycle, waste, or no item.
+3. **Right bin:** nothing extra. **Wrong bin:** the warning plays, the bin points at the other bin, and the photo appears in the polaroid in the bottom-left corner. If the first photo shows no item, it tries once more a moment later.
 
-**Default: COCO-SSD**, a ready-made object detector that works right away. It recognizes bottles, cups, books (paper), fruit, food and plastic cutlery. It does **not** know cans, chip bags, or paper scraps well. Cans usually show up as "cup" or "bottle". The boxes on the camera preview show what it sees (blue = recycle, orange = waste, gray = ignored). Edit `COCO_MAP` in `config.js` to change which label goes in which bin.
+There are two judges. Pick one with `VISION.ENGINE` in `config.js`. The default, `'auto'`, uses Claude if an API key is saved and CLIP otherwise.
 
-**Better for the demo: Teachable Machine.** Train it on the exact items you'll use in class:
+| | CLIP (default) | Claude |
+|---|---|---|
+| Runs | inside the browser | on Anthropic's servers |
+| Setup | none | an Anthropic API key, typed into Backstage → Camera check |
+| Cost | free | a fraction of a cent per photo |
+| Speed | about 0.4 s per photo | a few seconds per photo |
+| Smarts | picks the closest description from a list in `config.js` (`CLIP_LABELS`) | understands unusual items; follows the rules in `CLAUDE_PROMPT` |
+| Privacy | photos never leave the laptop | each photo is sent to Anthropic |
 
-1. Go to https://teachablemachine.withgoogle.com → *Get Started* → *Image Project* → *Standard*.
-2. Make 3 classes: `Recycle`, `Waste`, `Nothing`. Use the webcam that'll be on the bins, in the same spot. Record each demo item held over the bins, from several angles. For `Nothing`, record the empty scene and people standing there with empty hands.
-3. *Train Model* → *Export Model* → *Upload (shareable link)* → copy the link.
-4. Paste it into `TEACHABLE_MACHINE_URL` in `config.js` and reload the page.
+**Make CLIP better for your demo:** add short descriptions of your actual demo items to `CLIP_LABELS`, such as `'a red solo cup'` or `'a crushed coffee cup'`, under the right bin.
 
-Class names are matched automatically: anything containing "recycl" goes to recycling, and "waste"/"trash"/"garbage"/"landfill" goes to waste. Use `TM_MAP` for other names.
+**Using Claude:** paste your key into Backstage → Camera check and click **save key**. The key is stored in that browser only and never goes into the code or GitHub. Anyone who uses that laptop's browser could find it, so click **forget key** after the demo. The page uses `claude-opus-5-5` at low effort, with automatic fallback to another model if a request is declined. Change the recycling rules in `CLAUDE_PROMPT` to match your campus.
 
-**Camera placement:** point it at the space just above both bins, where people hold the item right before stepping on the pedal. When a lid opens, the program uses whatever it recognized in the last 2.5 s. If it saw nothing, it keeps watching while the lid is open.
+**Test it:** Backstage → Camera check → **take a test photo**. Hold an item up to the camera first. The result shows the bin, the label, the confidence and how long it took.
+
+**Camera placement:** point it at the space just above both bins, where people hold the item as they step on the pedal. Plain backgrounds help.
+
+**Observation sessions:** each check is logged (`item_checked`, with the result, the judge used and the time taken), so the CSV shows how often the judge was right. If you use Claude, tell participants that photos go to an AI service.
 
 ## Use your own voices (recommended)
 
@@ -118,7 +128,7 @@ Every team member should be able to explain this:
 | `audio.js` | The sound engine. It plays a recorded file if one exists, otherwise a synthesized effect (Web Audio) plus text-to-speech (Web Speech API). Only one voice plays at a time: warnings interrupt "ahhh"/"gulp", and "gulp" waits until a warning finishes. It announces each line so the stage can show a matching speech bubble. |
 | `stage.js` | The drawings. It builds the two bin characters as SVG and switches them between poses (napping, idle, ahhh, gulp, full, warn) with CSS animations. It also handles speech bubbles, the item dropping in, tally marks, floating doodles, and the wobbly-ink effect. |
 | `art/` | Ink drawings of trash items and the title lettering (Higgsfield-generated, then recolored). |
-| `vision.js` | The camera. About 5 times a second it runs the model (COCO-SSD or Teachable Machine via TensorFlow.js) and records the most confident item and its bin. `recentItem()` answers "what did you see lately?", and an item must be seen in 2+ frames (or once with 80%+ confidence) to count. |
+| `vision.js` | The camera and the judge. `judge()` takes a photo and asks a vision-language model which bin the item belongs in: CLIP (transformers.js, inside the browser) or Claude (the Anthropic SDK, with a structured JSON answer). |
 | `index.html` / `style.css` | The page: the paper stage, the start note, and the Backstage drawer, plus the ink-and-riso look. |
 
 Two details handle noisy hardware:

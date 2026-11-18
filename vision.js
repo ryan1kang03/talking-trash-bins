@@ -1,26 +1,31 @@
 /* =============================================================================
-   vision.js — the camera that decides "recyclable or not?"
+   vision.js — the camera and the "is this the right bin?" judge.
 
-   Several times a second it looks at the camera image and writes down the most
-   confident thing it recognised and which bin that thing belongs in
-   ('recycle' / 'waste'). app.js asks it "what did you see lately?" when a lid opens.
+   judge() takes a photo from the camera and asks a vision-language model which
+   bin the item belongs in. It answers { category: 'recycle' | 'waste' | null,
+   label, score, ms }  (null category = no item visible / not sure).
 
-   Two possible brains:
-     - COCO-SSD (default): a ready-made object detector (bottle, cup, banana, ...)
-     - Teachable Machine: your own model trained on your own demo items
+   Two possible judges (pick in config.js -> VISION.ENGINE):
+     CLIP   - runs inside the browser (transformers.js). Compares the photo with the
+              descriptions in CONFIG.VISION.CLIP_LABELS and picks the closest one.
+     Claude - sends the photo to the Claude API with the rules in CLAUDE_PROMPT and
+              gets back a structured answer { item, bin }.
    ============================================================================= */
 
 const Vision = (() => {
   const V = CONFIG.VISION;
+  const LIBS = {
+    transformers: 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.1',
+    anthropic: 'https://esm.sh/@anthropic-ai/sdk@1.5.0',
+  };
+  const KEY_STORAGE = 'trashy-anthropic-api-key';   // kept in this browser only, never in the repo
+
   let video = null;
-  let canvas = null;
-  let g = null;
-  let mode = 'off';        // 'coco' | 'tm' | 'off'
-  let coco = null;         // COCO-SSD model
-  let tm = null;           // { model, labels, size } for Teachable Machine
-  let running = false;
-  const history = [];      // one entry per analysed frame: { t, category, label, score }
-  const listeners = [];
+  let engine = 'off';      // 'clip' | 'claude' | 'off'
+  let clip = null;         // CLIP zero-shot classifier
+  let claude = null;       // Anthropic client
+  let AnthropicSDK = null; // the SDK module's default export (for its error classes)
+  let busy = false;
 
   /* ---------- camera ---------- */
 
@@ -29,10 +34,8 @@ const Vision = (() => {
     return devices.filter(d => d.kind === 'videoinput');
   }
 
-  async function startCamera(videoEl, canvasEl, deviceId) {
+  async function startCamera(videoEl, deviceId) {
     video = videoEl;
-    canvas = canvasEl;
-    g = canvas.getContext('2d');
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       throw new Error('this browser cannot use the camera here');
     }
@@ -50,166 +53,155 @@ const Vision = (() => {
     return track && track.getSettings ? track.getSettings().deviceId : null;
   }
 
-  /* ---------- model ---------- */
-
-  // The machine-learning libraries are downloaded only when the camera is turned on.
-  const LIBS = {
-    tf: 'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js',
-    coco: 'https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js',
-  };
-
-  function loadScript(src) {
-    return new Promise((resolve, reject) => {
-      const s = document.createElement('script');
-      s.src = src;
-      s.onload = resolve;
-      s.onerror = () => reject(new Error('could not download ' + src.split('/').pop() + ' (check internet)'));
-      document.head.appendChild(s);
-    });
+  // Grab the current camera frame as a small JPEG (data URL).
+  function snapshot() {
+    if (!video || video.readyState < 2 || !video.videoWidth) return null;
+    const scale = Math.min(1, 512 / Math.max(video.videoWidth, video.videoHeight));
+    const c = document.createElement('canvas');
+    c.width = Math.round(video.videoWidth * scale);
+    c.height = Math.round(video.videoHeight * scale);
+    c.getContext('2d').drawImage(video, 0, 0, c.width, c.height);
+    return c.toDataURL('image/jpeg', 0.85);
   }
 
-  async function loadModel() {
-    const url = (V.TEACHABLE_MACHINE_URL || '').trim();
-    if (typeof tf === 'undefined') await loadScript(LIBS.tf);
-    if (!url && typeof cocoSsd === 'undefined') await loadScript(LIBS.coco);
+  /* ---------- API key (only for the Claude judge) ---------- */
 
-    if (url) {
-      const base = url.endsWith('/') ? url : url + '/';
-      const [model, meta] = await Promise.all([
-        tf.loadLayersModel(base + 'model.json'),
-        fetch(base + 'metadata.json').then(r => r.json()),
-      ]);
-      tm = { model, labels: meta.labels, size: meta.imageSize || 224 };
-      mode = 'tm';
-      return 'Teachable Machine: ' + tm.labels.join(' / ');
+  function apiKey() {
+    try { return localStorage.getItem(KEY_STORAGE) || ''; } catch (e) { return ''; }
+  }
+  function setApiKey(key) {
+    try {
+      if (key) localStorage.setItem(KEY_STORAGE, key);
+      else localStorage.removeItem(KEY_STORAGE);
+    } catch (e) { /* storage blocked */ }
+  }
+
+  /* ---------- loading the judge ---------- */
+
+  function chooseEngine() {
+    if (V.ENGINE === 'clip') return 'clip';
+    if (V.ENGINE === 'claude') return 'claude';
+    return apiKey() ? 'claude' : 'clip';
+  }
+
+  // onProgress(percent) is called while CLIP downloads.
+  async function loadModel(onProgress) {
+    engine = 'off';
+    clip = null;
+    claude = null;
+    const want = chooseEngine();
+
+    if (want === 'claude') {
+      if (!apiKey()) throw new Error('no Anthropic API key saved (Backstage → Camera check)');
+      AnthropicSDK = (await import(LIBS.anthropic)).default;
+      // The key is typed into Backstage on the demo laptop and stays in that browser.
+      claude = new AnthropicSDK({ apiKey: apiKey(), dangerouslyAllowBrowser: true });
+      engine = 'claude';
+      return `Claude (${V.CLAUDE_MODEL})`;
     }
 
-    if (typeof cocoSsd === 'undefined') throw new Error('COCO-SSD did not load (check internet)');
-    coco = await cocoSsd.load({ base: V.COCO_BASE });
-    mode = 'coco';
-    return 'COCO-SSD object detector';
+    const tf = await import(LIBS.transformers);
+    tf.env.allowLocalModels = false;
+    tf.env.useBrowserCache = location.protocol !== 'file:';   // the browser cache only works on http(s)
+    clip = await tf.pipeline('zero-shot-image-classification', V.CLIP_MODEL, {
+      progress_callback: p => {
+        if (onProgress && p.status === 'progress' && /\.onnx$/.test(p.file || '')) onProgress(Math.round(p.progress));
+      },
+    });
+    engine = 'clip';
+    return 'CLIP (runs in this browser)';
   }
 
-  /* ---------- the analysis loop ---------- */
+  /* ---------- judging ---------- */
 
-  function start() {
-    if (running) return;
-    running = true;
-    loop();
-  }
-
-  async function loop() {
-    if (!running) return;
+  // Take a photo now (or use `image`, a data URL, for testing) and ask the judge.
+  // Returns null when the camera or judge isn't ready, or a check is already running.
+  async function judge(image) {
+    if (busy || engine === 'off') return null;
+    const photo = image || snapshot();
+    if (!photo) return null;
+    busy = true;
     const t0 = performance.now();
     try {
-      if (mode !== 'off' && video && video.readyState >= 2 && video.videoWidth > 0) await analyseFrame();
+      const verdict = engine === 'claude' ? await askClaude(photo) : await askClip(photo);
+      return verdict && { ...verdict, engine, image: photo, ms: Math.round(performance.now() - t0) };
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function askClip(photo) {
+    const labels = [];
+    const cats = [];
+    for (const [cat, list] of Object.entries(V.CLIP_LABELS)) {
+      for (const label of list) { labels.push(label); cats.push(cat); }
+    }
+    const results = await clip(photo, labels, { hypothesis_template: 'a photo of {}.' });  // best first
+    const totals = {};
+    for (const r of results) {
+      const cat = cats[labels.indexOf(r.label)];
+      totals[cat] = (totals[cat] || 0) + r.score;
+    }
+    const best = results[0];
+    const cat = cats[labels.indexOf(best.label)];
+    const score = totals[cat];
+    if (cat === 'none' || score < V.MIN_CONFIDENCE) return { category: null, label: best.label, score };
+    return { category: cat, label: best.label, score };
+  }
+
+  // Structured output: Claude must answer with exactly this JSON shape.
+  const VERDICT_SCHEMA = {
+    type: 'object',
+    properties: {
+      item: { type: 'string', description: 'Short name of the item being thrown away, e.g. "plastic bottle". "nothing" if none.' },
+      bin: { type: 'string', enum: ['recycle', 'waste', 'none'] },
+    },
+    required: ['item', 'bin'],
+    additionalProperties: false,
+  };
+
+  async function askClaude(photo) {
+    const request = {
+      model: V.CLAUDE_MODEL,
+      max_tokens: 2048,
+      system: V.CLAUDE_PROMPT,
+      output_config: {
+        effort: 'low',                                        // a quick judgement, not deep reasoning
+        format: { type: 'json_schema', schema: VERDICT_SCHEMA },
+      },
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: photo.split(',')[1] } },
+          { type: 'text', text: 'Which bin does the item being thrown away belong in?' },
+        ],
+      }],
+    };
+
+    let response;
+    try {
+      // If the model declines for safety reasons, the API retries on a fallback model.
+      response = await claude.beta.messages.create({
+        ...request,
+        betas: ['server-side-fallback-2026-07-01'],
+        fallbacks: 'default',
+      });
     } catch (err) {
-      console.warn('Vision error:', err);
+      if (!(err instanceof AnthropicSDK.BadRequestError)) throw err;
+      console.warn('Retrying without fallbacks:', err.message);
+      response = await claude.messages.create(request);
     }
-    setTimeout(loop, Math.max(0, V.INTERVAL_MS - (performance.now() - t0)));
+
+    if (response.stop_reason === 'refusal') return { category: null, label: 'declined', score: 0 };
+    const text = response.content.find(b => b.type === 'text');
+    if (!text) return null;
+    const verdict = JSON.parse(text.text);
+    return { category: verdict.bin === 'none' ? null : verdict.bin, label: verdict.item, score: 1 };
   }
 
-  async function analyseFrame() {
-    const detections = mode === 'tm' ? await classifyTM() : await detectCOCO();
-
-    // The most confident thing that belongs in one of the bins.
-    const best = detections
-      .filter(d => d.category && d.score >= V.MIN_SCORE)
-      .sort((a, b) => b.score - a.score)[0] || null;
-
-    const now = performance.now();
-    history.push({ t: now, category: best ? best.category : null, label: best ? best.label : null, score: best ? best.score : 0 });
-    while (history.length && history[0].t < now - 10000) history.shift();   // keep 10 s
-
-    draw(detections);
-    const frame = { detections, best, mode };
-    listeners.forEach(fn => fn(frame));
-  }
-
-  async function detectCOCO() {
-    // Low threshold (0.3) so near-misses show up faintly on screen; MIN_SCORE filters the real decision.
-    const preds = await coco.detect(video, 10, 0.3);
-    return preds.map(p => ({
-      label: p.class,
-      score: p.score,
-      bbox: p.bbox,
-      category: V.COCO_MAP[p.class] || null,
-    }));
-  }
-
-  async function classifyTM() {
-    const output = tf.tidy(() => {
-      const img = tf.browser.fromPixels(video);
-      const [h, w] = img.shape;
-      const s = Math.min(h, w);
-      // centre square, mirrored like the Teachable Machine webcam, resized to 224x224, scaled to [-1, 1]
-      const square = img.slice([Math.floor((h - s) / 2), Math.floor((w - s) / 2), 0], [s, s, 3]);
-      const input = tf.image.resizeBilinear(square, [tm.size, tm.size]).reverse(1);
-      return tm.model.predict(input.toFloat().div(127).sub(1).expandDims(0));
-    });
-    const probs = await output.data();
-    output.dispose();
-    return tm.labels.map((label, i) => ({ label, score: probs[i], category: tmCategory(label) }));
-  }
-
-  function tmCategory(label) {
-    if (V.TM_MAP[label]) return V.TM_MAP[label];
-    const l = label.toLowerCase();
-    if (/(non|not)[\s-]*recycl/.test(l)) return 'waste';
-    if (l.includes('recycl')) return 'recycle';
-    if (/waste|trash|garbage|landfill/.test(l)) return 'waste';
-    return null;   // "Nothing", "Background", ...
-  }
-
-  // Boxes on top of the camera preview (COCO mode only).
-  function draw(detections) {
-    const w = video.videoWidth;
-    const h = video.videoHeight;
-    if (canvas.width !== w) canvas.width = w;
-    if (canvas.height !== h) canvas.height = h;
-    g.clearRect(0, 0, w, h);
-    if (mode !== 'coco') return;
-
-    g.lineWidth = 3;
-    g.font = '600 18px system-ui, sans-serif';
-    for (const d of detections) {
-      const [x, y, bw, bh] = d.bbox;
-      const color = d.category === 'recycle' ? '#2f9bff' : d.category === 'waste' ? '#ff8a3d' : '#9aa0a6';
-      const text = `${d.label} ${Math.round(d.score * 100)}%`;
-      g.globalAlpha = d.score >= V.MIN_SCORE ? 1 : 0.4;
-      g.strokeStyle = color;
-      g.strokeRect(x, y, bw, bh);
-      const ty = Math.max(0, y - 26);
-      g.fillStyle = color;
-      g.fillRect(x, ty, g.measureText(text).width + 12, 26);
-      g.fillStyle = '#fff';
-      g.fillText(text, x + 6, ty + 19);
-    }
-    g.globalAlpha = 1;
-  }
-
-  /* ---------- what app.js asks ---------- */
-
-  // "What item did you see in the last `windowMs`?"  ->  { category, label, score } or null
-  // An item counts if it was seen in MIN_FRAMES frames, or once with SURE_SCORE confidence.
-  function recentItem(windowMs) {
-    const since = performance.now() - windowMs;
-    const tally = {};
-    for (const h of history) {
-      if (h.t < since || !h.category) continue;
-      const k = tally[h.category] || (tally[h.category] = { category: h.category, frames: 0, score: 0, label: '' });
-      k.frames++;
-      if (h.score > k.score) { k.score = h.score; k.label = h.label; }
-    }
-    const top = Object.values(tally).sort((a, b) => b.frames - a.frames || b.score - a.score)[0];
-    if (!top) return null;
-    if (top.frames >= V.MIN_FRAMES || top.score >= V.SURE_SCORE) {
-      return { category: top.category, label: top.label, score: top.score };
-    }
-    return null;
-  }
-
-  function onFrame(fn) { listeners.push(fn); }
-
-  return { listCameras, startCamera, currentDeviceId, loadModel, start, recentItem, onFrame, mode: () => mode };
+  return {
+    listCameras, startCamera, currentDeviceId, snapshot,
+    loadModel, judge, apiKey, setApiKey,
+    engine: () => engine,
+  };
 })();

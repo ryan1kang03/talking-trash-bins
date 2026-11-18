@@ -25,13 +25,13 @@
     <svg class="stage__art boil" id="stage-art" viewBox="0 0 1600 900" role="img" aria-label="Two talking trash bins"></svg>
     <div class="stage__overlay" id="stage-overlay">
 
-      <!-- camera snapshot, only when the camera is turned on in config.js -->
-      <figure class="polaroid boil" id="polaroid">
+      <!-- camera polaroid: live view, plus the photo the judge looked at (only when the camera is on in config.js) -->
+      <figure class="polaroid" id="polaroid">
         <div class="polaroid__photo" id="video-wrap">
           <video id="video" playsinline muted></video>
-          <canvas id="overlay"></canvas>
+          <img id="snapshot" alt="">
         </div>
-        <figcaption id="seeing">looking…</figcaption>
+        <figcaption id="seeing">camera starting…</figcaption>
       </figure>
 
       <div class="sticky boil" id="focus-banner" hidden>
@@ -80,6 +80,23 @@
         <thead><tr><th>Bin</th><th>Pedal</th><th>Overflow</th><th>Items</th><th>Wrong</th><th>Full</th></tr></thead>
         <tbody></tbody>
       </table>
+    </section>
+
+    <section class="vision-only">
+      <h3>Camera check</h3>
+      <p id="judge-info" class="muted">Starts when you wake the bins.</p>
+      <div class="controls">
+        <button id="test-judge" class="ink-btn small" type="button">take a test photo</button>
+        <span id="judge-result" class="muted">—</span>
+      </div>
+      <label class="ctl stack">Anthropic API key (optional: uses Claude instead of the free in-browser CLIP)
+        <input id="api-key" type="password" autocomplete="off" spellcheck="false">
+      </label>
+      <div class="controls">
+        <button id="save-key" class="ink-btn small" type="button">save key</button>
+        <button id="clear-key" class="ink-btn small ghost" type="button">forget key</button>
+        <span class="muted" style="font-size:12px">stays in this browser only</span>
+      </div>
     </section>
 
     <section>

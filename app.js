@@ -126,15 +126,43 @@ function pedalUp(id) {
 
 function openLid(id) {
   const bin = state.bins[id];
-  const item = Vision.recentItem(CONFIG.VISION.LOOKBACK_MS);   // what was held up just before stepping
   bin.open = true;
-  bin.session = { openedAt: performance.now(), item, decided: !!item, warned: false };
-  logEvent(id, 'lid_open', item);
+  bin.session = { openedAt: performance.now(), item: null, warned: false };
+  logEvent(id, 'lid_open');
   Stage.lidOpen(id);
-
-  if (item && item.category !== id) warnWrongBin(id, item);
-  else SoundEngine.play('open', { bin: id });
+  SoundEngine.play('open', { bin: id });
+  if (CONFIG.VISION.ENABLED) checkItem(id, bin.session);
   render();
+}
+
+/* ---------- camera check: is the item going into the right bin? ----------
+   Take a photo as the pedal goes down and ask the judge (vision.js). If the photo
+   shows no item yet, try again a moment later. A wrong item interrupts "Ahhh" with
+   the warning — even if the lid has already closed by the time the answer arrives. */
+
+async function checkItem(id, session) {
+  const delays = CONFIG.VISION.SNAPSHOT_DELAYS_MS;
+  for (let i = 0; i < delays.length; i++) {
+    await new Promise(r => setTimeout(r, delays[i]));
+    if (i > 0 && session !== state.bins[id].session) return;          // lid already closed: item is gone
+    showVerdict({ thinking: true });
+    let result;
+    try {
+      result = await Vision.judge();
+    } catch (err) {                                                    // e.g. bad API key, no Wi-Fi
+      showVerdict({ error: true });
+      setChip('model', 'bad', 'Judge error: ' + err.message);
+      logEvent(id, 'check_error', null, { engine: Vision.engine() });
+      return;
+    }
+    if (!result) { showVerdict(null); return; }                        // camera or judge not ready
+    showVerdict(result);
+    logEvent(id, 'item_checked', result, { engine: result.engine, check_ms: result.ms });
+    if (!result.category) continue;                                    // no item visible yet
+    session.item = result;
+    if (result.category !== id) warnWrongBin(id, result, session);
+    return;
+  }
 }
 
 function closeLid(id) {
@@ -149,9 +177,9 @@ function closeLid(id) {
   render();
 }
 
-function warnWrongBin(id, item) {
+function warnWrongBin(id, item, session) {
   const bin = state.bins[id];
-  bin.session.warned = true;
+  session.warned = true;
   bin.warnings++;
   Stage.warn(id);
   // Recyclable item at the waste bin -> "Please recycle!"; anything else -> "Please throw that in the waste bin!"
@@ -159,21 +187,6 @@ function warnWrongBin(id, item) {
   logEvent(id, 'wrong_bin_warning', item);
   render();
 }
-
-// If nothing was recognised when the lid opened, keep watching while it's open
-// (the item may only come into view now). Each opening is judged once.
-Vision.onFrame(frame => {
-  renderSeeing(frame);
-  for (const id of BIN_IDS) {
-    const bin = state.bins[id];
-    if (!bin.open || !bin.session || bin.session.decided) continue;
-    const item = Vision.recentItem(CONFIG.VISION.LIVE_WINDOW_MS);
-    if (!item) continue;
-    bin.session.item = item;
-    bin.session.decided = true;
-    if (item.category !== id) warnWrongBin(id, item);
-  }
-});
 
 /* ---------- overflow sensor ---------- */
 
@@ -223,7 +236,7 @@ SoundEngine.onSpeech((type, info) => {
 
 /* ---------- event log (for your observation sessions) ---------- */
 
-const LOG_COLUMNS = ['time', 'participant', 'bin', 'event', 'item', 'item_category', 'confidence', 'lid_open_ms'];
+const LOG_COLUMNS = ['time', 'participant', 'bin', 'event', 'item', 'item_category', 'confidence', 'engine', 'check_ms', 'lid_open_ms'];
 
 function logEvent(binId, event, item, extra = {}) {
   const entry = {
@@ -232,8 +245,10 @@ function logEvent(binId, event, item, extra = {}) {
     bin: binId,
     event,
     item: item ? item.label : '',
-    item_category: item ? item.category : '',
+    item_category: item ? item.category || 'none' : '',
     confidence: item ? item.score.toFixed(2) : '',
+    engine: '',
+    check_ms: '',
     lid_open_ms: '',
     ...extra,
   };
@@ -334,11 +349,21 @@ function renderLogEntry(entry) {
   while (list.children.length > 200) list.lastChild.remove();
 }
 
-function renderSeeing(frame) {
-  const item = frame.best;
-  $('#seeing').textContent = item
-    ? `I see a ${item.label} → ${(CONFIG.BINS[item.category] || {}).label || item.category}!`
-    : 'looking…';
+// The polaroid on stage: shows the photo the judge looked at and its verdict for a few seconds.
+let verdictTimer = null;
+function showVerdict(result) {
+  const pol = $('#polaroid');
+  const cap = $('#seeing');
+  clearTimeout(verdictTimer);
+  if (!result) { pol.classList.remove('is-thinking'); cap.textContent = 'camera not ready'; return; }
+  if (result.thinking) { pol.classList.add('is-thinking'); cap.textContent = 'hmm…'; return; }
+  if (result.error) { pol.classList.remove('is-thinking'); cap.textContent = 'judge error (see Backstage)'; return; }
+  pol.classList.remove('is-thinking');
+  $('#snapshot').src = result.image;
+  pol.classList.add('show-snap');
+  const bin = CONFIG.BINS[result.category];
+  cap.textContent = result.category ? `${result.label} → ${bin ? bin.label : result.category}` : `no item? (${result.label})`;
+  verdictTimer = setTimeout(() => { pol.classList.remove('show-snap'); cap.textContent = 'watching…'; }, 4000);
 }
 
 function highlightKey(k, down) {
@@ -389,19 +414,46 @@ async function start() {
 
   if (!CONFIG.VISION.ENABLED) return;   // audio + Makey Makey only
   setChip('camera', 'wait', 'Waiting for camera permission…');
-  setChip('model', 'wait', 'Loading model…');
-  Vision.start();   // the loop simply idles until both the camera and the model are ready
   const savedCamera = (() => { try { return localStorage.getItem(CAMERA_STORAGE_KEY); } catch (e) { return null; } })();
   startCamera(savedCamera).then(ok => { if (!ok && savedCamera) startCamera(null); });
-  Vision.loadModel()
-    .then(name => setChip('model', 'ok', name))
-    .catch(err => setChip('model', 'bad', 'Model failed: ' + err.message));
+  loadJudge();
+}
+
+// Load (or reload, after an API key change) the vision-language model that judges photos.
+function loadJudge() {
+  setChip('model', 'wait', 'Loading the judge…');
+  $('#judge-info').textContent = 'Loading…';
+  return Vision.loadModel(pct => setChip('model', 'wait', `Downloading CLIP ${pct}%`))
+    .then(name => {
+      setChip('model', 'ok', 'Judge: ' + name);
+      $('#judge-info').textContent = 'Judge: ' + name;
+    })
+    .catch(err => {
+      setChip('model', 'bad', 'Judge failed: ' + err.message);
+      $('#judge-info').textContent = 'Judge failed: ' + err.message;
+    });
+}
+
+async function testJudge() {
+  const out = $('#judge-result');
+  out.textContent = 'checking…';
+  showVerdict({ thinking: true });
+  try {
+    const result = await Vision.judge();
+    showVerdict(result);
+    out.textContent = !result ? 'Camera or judge not ready yet.'
+      : `${result.category || 'no item'} — "${result.label}" (${Math.round(result.score * 100)}%, ${result.ms} ms, ${result.engine})`;
+  } catch (err) {
+    showVerdict(null);
+    out.textContent = 'Error: ' + err.message;
+  }
 }
 
 async function startCamera(deviceId) {
   try {
-    const label = await Vision.startCamera($('#video'), $('#overlay'), deviceId);
+    const label = await Vision.startCamera($('#video'), deviceId);
     setChip('camera', 'ok', label);
+    $('#seeing').textContent = 'watching…';
     await fillCameraList();
     return true;
   } catch (err) {
@@ -477,6 +529,26 @@ blurAfter($('#camera-select'), e => {
 blurAfter($('#download-log'), downloadCsv);
 blurAfter($('#next-participant'), nextParticipant);
 blurAfter($('#clear-log'), clearLog);
+
+// Camera check (Backstage): test button + optional Anthropic API key for the Claude judge.
+function showKeyStatus() {
+  $('#api-key').value = '';
+  $('#api-key').placeholder = Vision.apiKey() ? 'key saved in this browser ✓' : 'sk-ant-…';
+}
+blurAfter($('#test-judge'), testJudge);
+blurAfter($('#save-key'), () => {
+  const key = $('#api-key').value.trim();
+  if (!key) return;
+  Vision.setApiKey(key);
+  showKeyStatus();
+  if (state.started && CONFIG.VISION.ENABLED) loadJudge();
+});
+blurAfter($('#clear-key'), () => {
+  Vision.setApiKey('');
+  showKeyStatus();
+  if (state.started && CONFIG.VISION.ENABLED) loadJudge();
+});
+showKeyStatus();
 
 document.body.classList.add(CONFIG.VISION.ENABLED ? 'has-vision' : 'no-vision');
 Stage.init($('#stage-art'), $('#stage-overlay'));

@@ -122,58 +122,50 @@ const CONFIG = {
   OVERFLOW_REMIND_EVERY_SEC: 20,   // repeat "Take out the trash!" while still full (0 = only say it once)
 
   /* ---------------------------------------------------------------------------
-     5. CAMERA / RECYCLING DETECTION
+     5. CAMERA: "IS THIS THE RIGHT BIN?"
+     When a pedal is pressed, the camera takes a photo of the item being held over
+     the bins and a vision-language model (VLM) judges whether it belongs in THIS bin.
+       right bin -> nothing extra (the usual "Ahhh" ... "Gulp")
+       wrong bin -> "Please recycle!" / "Please throw that in the waste bin!"
      --------------------------------------------------------------------------- */
   VISION: {
-    // OFF for now: audio + Makey Makey only (works without internet, no camera prompt).
-    // Set to true when you're ready to add the camera.
-    ENABLED: false,
+    ENABLED: true,
 
-    // OPTION A (default): built-in object detector (COCO-SSD). Works out of the box
-    // for bottles, cups, food, utensils... but it doesn't know cans or paper well.
-    //
-    // OPTION B (recommended for the demo): train your own model on YOUR demo items at
-    // https://teachablemachine.withgoogle.com (Image Project) with classes named
-    // e.g. "Recycle", "Waste", "Nothing", click Export -> Upload, and paste the link here.
-    TEACHABLE_MACHINE_URL: '',   // e.g. 'https://teachablemachine.withgoogle.com/models/AbC123xYz/'
+    // Which model judges the photo:
+    //   'auto'   - Claude if an Anthropic API key is saved in Backstage, otherwise CLIP
+    //   'clip'   - CLIP, runs inside the browser: free, no key, photos never leave the laptop
+    //              (first start downloads the model, ~150 MB; the website caches it afterwards)
+    //   'claude' - Claude: understands tricky items much better; needs an API key, costs a
+    //              fraction of a cent per photo, and sends each photo to Anthropic
+    ENGINE: 'auto',
 
-    COCO_BASE: 'mobilenet_v2',   // 'lite_mobilenet_v2' = faster, 'mobilenet_v2' = more accurate
-    INTERVAL_MS: 200,            // how often the camera is analysed
-    MIN_SCORE: 0.55,             // ignore guesses less confident than this
-    SURE_SCORE: 0.8,             // a single frame this confident is enough on its own
-    MIN_FRAMES: 2,               // otherwise the item must be seen in at least this many frames
-    LOOKBACK_MS: 2500,           // when a lid opens, use what the camera saw in the last 2.5 s
-    LIVE_WINDOW_MS: 1200,        // while a lid is open, keep checking the last 1.2 s
+    // Photos taken after the pedal goes down. If the first one shows no item, try again.
+    SNAPSHOT_DELAYS_MS: [150, 900],
 
-    // COCO-SSD label -> which bin it belongs in. Labels not listed are ignored
-    // (people, laptops, chairs...). Full label list: see README.
-    COCO_MAP: {
-      'bottle': 'recycle',
-      'cup': 'recycle',          // soda cans are usually detected as "cup" or "bottle"
-      'wine glass': 'recycle',   // clear plastic cups/bottles sometimes show up as this
-      'book': 'recycle',         // paper / cardboard / magazines
-      'banana': 'waste',
-      'apple': 'waste',
-      'orange': 'waste',
-      'sandwich': 'waste',
-      'hot dog': 'waste',
-      'pizza': 'waste',
-      'donut': 'waste',
-      'cake': 'waste',
-      'broccoli': 'waste',
-      'carrot': 'waste',
-      'fork': 'waste',           // plastic cutlery
-      'spoon': 'waste',
-      'knife': 'waste',
-      'toothbrush': 'waste',
+    /* ---- CLIP settings ---- */
+    CLIP_MODEL: 'Xenova/clip-vit-base-patch32',
+    MIN_CONFIDENCE: 0.45,   // CLIP must be at least this sure (0-1) before a bin complains
+    // CLIP compares the photo with every description below and picks the closest.
+    // Add descriptions of YOUR demo items for better results.
+    CLIP_LABELS: {
+      recycle: ['a plastic water bottle', 'an aluminum soda can', 'a crumpled sheet of paper',
+                'a cardboard box', 'a glass bottle', 'a newspaper'],
+      waste:   ['a banana peel', 'an apple core', 'food scraps', 'a chip bag',
+                'a candy wrapper', 'a used tissue', 'a plastic fork'],
+      none:    ['a person with empty hands', 'an empty room', 'a person\'s face'],
     },
 
-    // Teachable Machine class name -> bin. Classes not listed here are guessed from
-    // their name: contains "recycl" -> recycle; "waste"/"trash"/"garbage"/"landfill"
-    // or "not recyclable" -> waste; anything else ("Nothing", "Background") -> ignored.
-    TM_MAP: {
-      // 'Plastic bottle': 'recycle',
-      // 'Chip bag': 'waste',
-    },
+    /* ---- Claude settings ---- */
+    CLAUDE_MODEL: 'claude-opus-5-5',
+    // The rules Claude follows. Edit this to match your campus recycling rules.
+    CLAUDE_PROMPT:
+      'You are the camera for two talking trash bins in a classroom demo: a RECYCLING bin ' +
+      'and a WASTE (landfill) bin. Find the single item a person is about to throw away ' +
+      '(usually held in a hand near the bins) and decide which bin it belongs in. ' +
+      'Recycle: empty plastic bottles and rigid plastic containers, aluminum and steel cans, ' +
+      'glass bottles and jars, clean paper, cardboard. ' +
+      'Waste: food scraps, chip bags and candy wrappers, plastic bags and film, used tissues ' +
+      'and napkins, paper coffee cups, plastic utensils, styrofoam. ' +
+      'If no item is clearly being thrown away, answer "none".',
   },
 };

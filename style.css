@@ -218,7 +218,12 @@ button, select, input { font: inherit; color: inherit; }
   transform: rotate(-3deg);
 }
 .polaroid__photo { position: relative; aspect-ratio: 4 / 3; background: var(--ink); overflow: hidden; }
-.polaroid video, .polaroid canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.polaroid video, .polaroid img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.polaroid img { display: none; }
+.polaroid.show-snap img { display: block; animation: flash .35s ease-out; }
+.polaroid.is-thinking figcaption { animation: thinking .8s ease-in-out infinite alternate; }
+@keyframes flash { from { filter: brightness(2.2); } }
+@keyframes thinking { to { opacity: .35; } }
 .polaroid figcaption { font-family: var(--font); font-weight: 600; font-size: 1.2cqw; text-align: center; padding: .4cqw .4cqw .6cqw; line-height: 1.2; }
 .no-vision .polaroid { display: none; }
 
@@ -384,7 +389,9 @@ kbd.is-down { background: var(--yellow); transform: translateY(2px) rotate(-3deg
 .ev--participant_start, .ev--system_start { background: var(--paper); }
 
 /* camera off: hide camera controls */
-.no-vision .ctl-camera, .no-vision #chip-camera, .no-vision #chip-model { display: none; }
+.no-vision .ctl-camera, .no-vision #chip-camera, .no-vision #chip-model, .no-vision .vision-only { display: none; }
+.ctl.stack { display: grid; gap: 4px; }
+.ctl input[type="password"] { background: var(--paper); border: 2px solid var(--ink); border-radius: 8px; padding: 4px 8px; font: inherit; }
 
 @media (prefers-reduced-motion: reduce) {
   .bin__idle, .decor, .stink path, .zzz text { animation: none !important; }
