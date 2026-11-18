@@ -154,7 +154,7 @@ const Stage = (() => {
     let html = `
       <path class="ink floor" d="M 90 ${FLOOR_Y} q 200 -7 400 -1 t 400 2 t 400 -3 t 220 1"/>
       <path class="ink thin" d="M 300 ${FLOOR_Y + 14} l 30 0 M 760 ${FLOOR_Y + 12} l 50 0 M 1260 ${FLOOR_Y + 15} l 34 0"/>
-      <image class="title" href="art/title.png" x="490" y="18" width="620" height="196"/>`;
+      <image class="title" href="art/title.png" x="500" y="10" width="600" height="220"/>`;
 
     ids.forEach((id, i) => {
       const b = CONFIG.BINS[id];

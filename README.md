@@ -1,4 +1,4 @@
-# Talking Trash Bins: Makey Makey prototype
+# trashy trashy: talking trash bins (Makey Makey prototype)
 
 Two bins, one for recycling and one for waste, that talk:
 
