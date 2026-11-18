@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Talking Trash Bins</title>
+  <link rel="icon" href="data:,">
+  <!-- Clean sans: SF Pro on Macs, Inter (the closest free match) everywhere else, Segoe UI when offline -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- "Line boil" filters: three slightly different wobbles, cycled a few times a second -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <filter id="boil-0"><feTurbulence type="fractalNoise" baseFrequency="0.025" numOctaves="2" seed="1"/><feDisplacementMap in="SourceGraphic" scale="3.2"/></filter>
+    <filter id="boil-1"><feTurbulence type="fractalNoise" baseFrequency="0.025" numOctaves="2" seed="7"/><feDisplacementMap in="SourceGraphic" scale="3.2"/></filter>
+    <filter id="boil-2"><feTurbulence type="fractalNoise" baseFrequency="0.025" numOctaves="2" seed="13"/><feDisplacementMap in="SourceGraphic" scale="3.2"/></filter>
+  </svg>
+
+  <!-- ========================== THE STAGE (what people see) ========================== -->
+  <main class="stage" id="stage">
+    <svg class="stage__art boil" id="stage-art" viewBox="0 0 1600 900" role="img" aria-label="Two talking trash bins"></svg>
+    <div class="stage__overlay" id="stage-overlay">
+
+      <!-- camera snapshot, only when the camera is turned on in config.js -->
+      <figure class="polaroid boil" id="polaroid">
+        <div class="polaroid__photo" id="video-wrap">
+          <video id="video" playsinline muted></video>
+          <canvas id="overlay"></canvas>
+        </div>
+        <figcaption id="seeing">looking…</figcaption>
+      </figure>
+
+      <div class="sticky boil" id="focus-banner" hidden>
+        psst! click me —<br>I can't hear your feet
+      </div>
+
+      <button class="gear boil" id="backstage-btn" type="button" title="Backstage (` key)" aria-label="Open backstage controls">
+        <svg viewBox="0 0 48 48" aria-hidden="true"><path d="M24 6 l4 6 7-2 1 7 7 3-4 6 4 6-7 3-1 7-7-2-4 6-4-6-7 2-1-7-7-3 4-6-4-6 7-3 1-7 7 2z"/><circle cx="24" cy="24" r="6"/></svg>
+      </button>
+    </div>
+  </main>
+
+  <!-- ========================== START ========================== -->
+  <div id="start-overlay" class="start">
+    <div class="start__card">
+      <p class="start__lead">shh… they're napping</p>
+      <button id="start-btn" class="ink-btn" type="button">wake them up</button>
+      <p class="start__hint">no Makey Makey? arrow keys work too · press ` for backstage</p>
+    </div>
+  </div>
+
+  <!-- ========================== BACKSTAGE (for your team) ========================== -->
+  <aside class="backstage" id="backstage" hidden aria-label="Backstage controls">
+    <header class="backstage__head">
+      <h2>Backstage</h2>
+      <button id="backstage-close" class="ink-btn small" type="button">close</button>
+    </header>
+
+    <section>
+      <div class="chips">
+        <span class="chip" id="chip-sound" data-status="wait"><i></i><span>Sound off</span></span>
+        <span class="chip" id="chip-camera" data-status="wait"><i></i><span>Camera off</span></span>
+        <span class="chip" id="chip-model" data-status="wait"><i></i><span>Model not loaded</span></span>
+      </div>
+      <div class="controls">
+        <label class="ctl">Volume <input id="volume" type="range" min="0" max="1" step="0.05"></label>
+        <button id="mute-btn" class="ink-btn small" type="button" aria-pressed="false">mute</button>
+        <label class="ctl ctl-camera">Camera <select id="camera-select" disabled><option>—</option></select></label>
+      </div>
+    </section>
+
+    <section>
+      <h3>Makey Makey check</h3>
+      <p id="last-key" class="muted">Last input: —</p>
+      <table class="keys-table" id="bins-table">
+        <thead><tr><th>Bin</th><th>Pedal</th><th>Overflow</th><th>Items</th><th>Wrong</th><th>Full</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </section>
+
+    <section>
+      <h3>Sound check</h3>
+      <div class="sound-check">
+        <select id="sound-check-bin" aria-label="Which bin speaks"></select>
+        <div id="sound-check" class="sound-check__btns"></div>
+      </div>
+    </section>
+
+    <section class="log-section">
+      <div class="log-head">
+        <h3>Event log <span class="muted">· participant <b id="participant">1</b></span></h3>
+        <div class="log-actions">
+          <button id="next-participant" class="ink-btn small" type="button">next participant</button>
+          <button id="download-log" class="ink-btn small" type="button">download CSV</button>
+          <button id="clear-log" class="ink-btn small ghost" type="button">clear</button>
+        </div>
+      </div>
+      <ol id="log" class="log"></ol>
+    </section>
+  </aside>
+
+  <!-- Our code. (The camera's TensorFlow.js libraries are only downloaded when the camera is turned on in config.js.) -->
+  <script src="config.js"></script>
+  <script src="audio.js"></script>
+  <script src="vision.js"></script>
+  <script src="stage.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

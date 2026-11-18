@@ -1,0 +1,8 @@
+# OS clutter
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# test / tool output
+*.log
+.playwright-mcp/
