@@ -72,12 +72,16 @@ const CONFIG = {
      QUEUE_MAX_WAIT_MS), then plays — e.g. "Please recycle!" ... "Gulp!".
 
      sfx options: 'gulp', 'uhoh', 'alarm', 'ready'  (or null for none)
+     Optional per line: caption (bubble text, if it should differ from what's spoken)
+                        rate    (speed multiplier on top of the bin's own rate)
      --------------------------------------------------------------------------- */
   SOUNDS: {
     // Pedal stepped on -> lid opens
     open: {
       files: ['ahhh.mp3'],
-      say:   ['Ahhhhh!'],
+      say:   ['Aah!'],      // spelled for the speech engine: "Ahhhhh!" gets read as "a-h-h-h-h"
+      caption: 'Ahhhhh!',   // what the speech bubble shows (optional; defaults to the spoken text)
+      rate:  0.7,           // speak this line slower than the bin's normal voice, for a long "aah"
       sfx:   null,
       priority: 1,
     },

@@ -90,7 +90,7 @@ const SoundEngine = (() => {
     }
 
     const text = def.say && def.say.length ? pick(def.say) : '';
-    const info = { id: nextSpeechId++, name, bin: opts.bin, text };
+    const info = { id: nextSpeechId++, name, bin: opts.bin, text: def.caption || text };
     const files = (def.files || []).filter(f => fileCache[f]);
     if (muted) current = playSilent(priority, info);           // muted: bubbles still show
     else if (files.length) current = playFile(pick(files), priority, info);
@@ -178,7 +178,7 @@ const SoundEngine = (() => {
       const voice = voiceFor(binId);
       if (voice) { u.voice = voice; u.lang = voice.lang; }
       u.pitch = bin.pitch ?? 1;
-      u.rate = bin.rate ?? 1;
+      u.rate = (bin.rate ?? 1) * (def.rate ?? 1);
       u.volume = volume;
       u.onend = handle.finish;
       u.onerror = handle.finish;
